@@ -1,6 +1,6 @@
 # Quark-N LCD 与串口排查交接文档
 
-> 更新时间：2026-08-31。LCD、tty、UART0、Wi-Fi、蓝牙控制器和 ALSA PCM 链路已实机确认。当前外设增强镜像 SHA-256：`7cc540c497602059a49dc1347bbe49ff661a2bfef87e027d5405cd8650394e8c`。
+> 更新时间：2026-08-31。LCD、tty、UART0、Wi-Fi、蓝牙控制器和 ALSA PCM 链路已实机确认。当前 release 首登用户创建镜像 SHA-256：`3838f23418dc23b08fbf03459f70973829e9fede31685283503d24f759641293`。
 > 镜像路径：`~/quark-n-port/output/quark-n-mainline.img`
 
 ## 目标
@@ -59,14 +59,16 @@ Arch Linux ARM rootfs 自带 `archlinuxarm-keyring` seed 文件，但默认不�
 - `assembly.sh` 打包时先检查 `pacman-key`、public/trusted/revoked seed 文件；缺失则中止打包。
 - 输出使用 `.new` 临时文件，只有镜像复制和 SHA-256 计算成功后才替换上一版成品，失败构建不会删除最后一个可用镜像。
 
-### SSH 默认 root 登录
+### SSH 首次登录用户创建
 
 已加入 `rootfs-overlay/etc/ssh/sshd_config.d/10-root-login.conf`，明确设置：
 
 - `PermitRootLogin yes`
 - `PasswordAuthentication yes`
 
-因此后续打包镜像默认可使用 `root/root` 通过 SSH 登录。`assembly.sh` 会把 root 密码固定为 `root`，检查上述两项 SSH 配置是否存在，并将配置权限设为 `0644`；账户或配置处理失败时直接中止打包。
+release 镜像仅允许一次交互式 `root/root` 登录。root 的登录 shell 会强制执行 `/usr/local/sbin/quark-first-login`：创建普通用户、设置该用户密码和新的 root 本地恢复密码，然后将该配置改为 `PermitRootLogin no` 并拒绝后续 root SSH。首登完成后使用创建的普通用户通过 SSH 登录；需要本地管理员权限时使用 `su -`。
+
+`assembly.sh` 会检查首登脚本存在、将 root 的登录 shell 设为受控 wrapper，并在 pacman 配置中加入 `IgnorePkg = linux-armv7`，避免 Arch 用户空间升级覆盖 Quark-N 的 `/boot/zImage`。
 
 ## 串口卡住与 LCD 的关系
 

@@ -77,10 +77,10 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
 - boot.cmd
 
 ## 构建结果（2026-08-31）
-- **成品镜像**：`~/quark-n-port/output/quark-n-mainline.img`（3,212,836,864 bytes；SHA-256 `7cc540c497602059a49dc1347bbe49ff661a2bfef87e027d5405cd8650394e8c`）
+- **成品镜像**：`~/quark-n-port/output/quark-n-mainline.img`（3,212,836,864 bytes；SHA-256 `3838f23418dc23b08fbf03459f70973829e9fede31685283503d24f759641293`，release 首登用户创建版）
 - 分区：p1 FAT32 64MB（zImage + sun8i-h3-quark-n.dtb + boot.scr + extlinux.conf），p2 ext4 2.9GB（Arch ARM rootfs，首启自动扩容）
 - **内核**：主线 7.2（torvalds master），`sunxi_defconfig` + 自制 `arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts`
-- **rootfs**：Arch Linux ARM armv7h（默认用户 alarm/alarm，root/root）；通过独立 sshd drop-in 默认允许 root 密码登录
+- **rootfs**：Arch Linux ARM armv7h；首次以 `root/root` 交互登录会强制创建普通用户、设置新 root 恢复密码并关闭 root SSH
 - **Bootloader**：原厂 `u-boot-sunxi-with-spl.bin`（2017.11 FriendlyARM 版，从原厂镜像 8KB 偏移提取）
 - 烧录：`dd if=quark-n-mainline.img of=/dev/<SD> bs=4M` 或 balenaEtcher
 
