@@ -1,0 +1,52 @@
+#!/bin/bash
+# Provision one normal administrator during the first interactive root login.
+set -euo pipefail
+
+STATE_DIR=/var/lib/quark-first-login
+FLAG=$STATE_DIR/done
+ROOT_SSH_CONF=/etc/ssh/sshd_config.d/10-root-login.conf
+
+[ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
+[ -e "$FLAG" ] && exec /bin/bash -l
+[ -t 0 ] && [ -t 1 ] || {
+	echo "First-login provisioning requires an interactive serial or SSH login." >&2
+	exit 1
+}
+
+echo "Quark-N first-login setup"
+echo "Create the normal account used for day-to-day login."
+
+while :; do
+	read -r -p 'New username: ' USERNAME
+	case "$USERNAME" in
+		root|alarm|'') echo "Choose a non-reserved, non-empty username." ;;
+		*[!a-z0-9_-]*|[!a-z_]* ) echo "Use lowercase letters, digits, _ or -; start with a letter or _." ;;
+		*)
+			if getent passwd "$USERNAME" >/dev/null; then
+				echo "That account already exists."
+			else
+				break
+			fi
+			;;
+	esac
+done
+
+useradd -m -s /bin/bash -G wheel,audio,video,input "$USERNAME"
+echo "Set the password for $USERNAME:"
+passwd "$USERNAME"
+
+echo "Set a new root password for local recovery (root SSH is disabled afterwards):"
+passwd root
+
+install -d -o root -g root -m 0755 "$STATE_DIR"
+printf '%s\n' \
+	'# Root SSH is enabled only for first-login provisioning.' \
+	'PermitRootLogin no' \
+	'PasswordAuthentication yes' > "$ROOT_SSH_CONF"
+chmod 0644 "$ROOT_SSH_CONF"
+usermod -s /bin/bash root
+touch "$FLAG"
+systemctl try-reload-or-restart sshd.service 2>/dev/null || true
+
+echo "Provisioning complete.  Root SSH is now disabled; use $USERNAME for SSH."
+exec su - "$USERNAME"

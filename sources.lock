@@ -1,0 +1,17 @@
+# Immutable inputs for the currently validated Quark-N release baseline.
+# The scheduled release workflow overrides KERNEL_REF with a newly discovered
+# upstream tag, but every release records the exact ref in its manifest.
+KERNEL_REPOSITORY=https://github.com/torvalds/linux.git
+KERNEL_BASE_REF=08dbfad3f5040f5bdb6c529da20d6d4e81fefd72
+KERNEL_ARCH=arm
+CROSS_COMPILE=arm-linux-gnueabihf-
+
+# Arch Linux ARM's latest archive is downloaded into downloads/. Its digest
+# is pinned for reproducible local releases and changed intentionally only.
+ARCH_ROOTFS_URL=https://os.archlinuxarm.org/os/ArchLinuxARM-armv7-latest.tar.gz
+ARCH_ROOTFS_SHA256=ebe0fa119dea45e3af0aa61785676bdbf417bc5f754d529b87255dbf0ca4e3f0
+ARCH_ROOTFS_FILE=downloads/ArchLinuxARM-armv7-latest.tar.gz
+
+UBOOT_BINARY=u-boot-sunxi-with-spl-factory.bin
+UBOOT_SHA256=7d0ef1e1c97e0873fba9111d2c80eb7a02b09289d66cc90f7dbe620426d24c46
+IMAGE_BASENAME=quark-n-mainline

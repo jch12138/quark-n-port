@@ -1,0 +1,13 @@
+[Unit]
+Description=Resize root filesystem to fill SD card
+ConditionPathExists=!/var/lib/resize-fs/done
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/resize-fs.sh
+TimeoutSec=0
+
+[Install]
+WantedBy=multi-user.target

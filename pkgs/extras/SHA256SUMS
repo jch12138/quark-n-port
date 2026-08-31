@@ -1,0 +1,14 @@
+ed176a4e706f8ca8e3825d8dfdf2be005d3786c3def42ddd44d12604a8861346  alsa-lib-1.2.16.1-1-armv7h.pkg.tar.xz
+104486f90aa891cb38c6a4ac9a16183bea7f533fd6b11a740877a75222eb2156  alsa-topology-conf-1.2.5.1-4-any.pkg.tar.xz
+656d02914577f519a4121e775152148593d826cee997511baa321dfc94ec51e1  alsa-ucm-conf-1.2.16.1-1-any.pkg.tar.xz
+25ee7cc5969b03cbed8e3a809891425c47c1f90fb655363e79408016ec3d6f9a  alsa-utils-1.2.16-1-armv7h.pkg.tar.xz
+468bd5a561f20744490f780421b21d40da368b965231c272a3da79ba251037fb  bluez-5.87-2-armv7h.pkg.tar.xz
+2d925fe3f6607843a6efc55a49785c91e46367e1038fdd5afd8d1c5682cf9674  bluez-utils-5.87-2-armv7h.pkg.tar.xz
+7e19a22317749aff590ec2641844b191214d86f1cd7daad7f6761c183258b5e5  db5.3-5.3.28-7-armv7h.pkg.tar.xz
+f0b60e6adb927e241ff89f7ead763f217c1fc837675e27bd5b2caf83fa3a9e11  evtest-1.36-1-armv7h.pkg.tar.xz
+ac9449fcecb73de2c064c45f02a635a984129be9f48f7a578bfec3b4cd1bfbe7  fftw-3.3.11-1-armv7h.pkg.tar.xz
+c1dcabcd77bbe505c4f4f4d97a1e62b38deca2fb55132fcbe305c50f037fd907  i2c-tools-4.4-4-armv7h.pkg.tar.xz
+a28e98743d71cd2d785a3ac7d920aae793edcdff6244fad2dcc7f0dadbd8f535  libsamplerate-0.2.2-3-armv7h.pkg.tar.xz
+a7d019117472a25720b1f3c32e9e43d1888ce204798022efcd554ba44f9e7e73  perl-5.42.2-2-armv7h.pkg.tar.xz
+cec1f35c4b8cdb9c3defef483feec21c9d2f175bb0277eb102a27d170fafdbe0  usbutils-019-1-armv7h.pkg.tar.xz
+08b31375991f1f3eb63c457b4bcc280c9ad950f3b5bc6c58708df94ba4ee28cd  local-db.tar.gz

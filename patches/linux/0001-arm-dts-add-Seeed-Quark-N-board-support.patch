@@ -1,0 +1,320 @@
+From 73ed1af9dc5a484f789b14b4be22d671ad7455bb Mon Sep 17 00:00:00 2001
+From: Quark-N Build <build@quark-n.local>
+Date: Mon, 31 Aug 2026 18:23:14 +0800
+Subject: [PATCH] arm: dts: add Seeed Quark-N board support
+
+---
+ .gitignore                                    |   1 +
+ .../display/panel/panel-mipi-dbi-spi.yaml     |   1 +
+ arch/arm/boot/dts/allwinner/Makefile          |   1 +
+ .../boot/dts/allwinner/sun8i-h3-quark-n.dts   | 249 ++++++++++++++++++
+ firmware/seeed,quark-n-st7789v.bin            | Bin 0 -> 101 bytes
+ 5 files changed, 252 insertions(+)
+ create mode 100644 arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts
+ create mode 100644 firmware/seeed,quark-n-st7789v.bin
+
+diff --git a/.gitignore b/.gitignore
+index 9875120ea..32a0cf778 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,6 +15,7 @@
+ *.asn1.[ch]
+ *.bc
+ *.bin
++!firmware/seeed,quark-n-st7789v.bin
+ *.bz2
+ *.c.[012]*.*
+ *.dt.yaml
+diff --git a/Documentation/devicetree/bindings/display/panel/panel-mipi-dbi-spi.yaml b/Documentation/devicetree/bindings/display/panel/panel-mipi-dbi-spi.yaml
+index 6f0290c4e..b4a50f2db 100644
+--- a/Documentation/devicetree/bindings/display/panel/panel-mipi-dbi-spi.yaml
++++ b/Documentation/devicetree/bindings/display/panel/panel-mipi-dbi-spi.yaml
+@@ -74,6 +74,7 @@ properties:
+       - enum:
+           - saef,sftc154b
+           - sainsmart18
++          - seeed,quark-n-st7789v
+           - shineworld,lh133k
+       - const: panel-mipi-dbi-spi
+ 
+diff --git a/arch/arm/boot/dts/allwinner/Makefile b/arch/arm/boot/dts/allwinner/Makefile
+index 75b2b6a2f..87b0d164c 100644
+--- a/arch/arm/boot/dts/allwinner/Makefile
++++ b/arch/arm/boot/dts/allwinner/Makefile
+@@ -252,6 +252,7 @@ dtb-$(CONFIG_MACH_SUN8I) += \
+ 	sun8i-h3-orangepi-plus2e.dtb \
+ 	sun8i-h3-orangepi-zero-plus2.dtb \
+ 	sun8i-h3-orangepi-zero-plus2-interface-board.dtb \
++	sun8i-h3-quark-n.dtb \
+ 	sun8i-h3-rervision-dvk.dtb \
+ 	sun8i-h3-zeropi.dtb \
+ 	sun8i-h3-emlid-neutis-n5h3-devboard.dtb \
+diff --git a/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts b/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts
+new file mode 100644
+index 000000000..edb0fad21
+--- /dev/null
++++ b/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts
+@@ -0,0 +1,249 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++/*
++ * Device tree for the Pengzhihui (Seeed) Quark-N SoM on the Atom-N carrier,
++ * i.e. the "Quantum Mini Linux Development Kit".
++ *
++ * Pin mapping derived from the vendor kernel device tree
++ * (sun8i-h3-atom_n.dtb) shipped with the factory image, re-expressed in
++ * modern mainline syntax.
++ *
++ * SoC:  Allwinner H3 (sun8i-h3), quad Cortex-A7
++ * RAM:  512MB DDR3 @ 408MHz
++ * eMMC: 16GB (mmc2, 8-bit)
++ */
++#include "sun8i-h3-nanopi.dtsi"
++
++/ {
++	model = "Pengzhihui Quark-N (Quantum Mini Linux Development Kit)";
++	compatible = "friendlyelec,nanopi-neo-core", "allwinner,sun8i-h3";
++
++	aliases {
++		serial0 = &uart0;
++		mmc0 = &mmc0;
++		mmc2 = &mmc2;
++	};
++
++	/*
++	 * Power rails. These are controlled by GPIOs on the SoM (r_pio / PL).
++	 * U-Boot SPL already brings them up; the kernel just needs to know
++	 * they exist and leave them alone (always-on / boot-on).
++	 */
++
++	/* CPU core voltage, switched between 1.1V and 1.3V via PL6 */
++	vdd_cpux: vdd-cpux {
++		compatible = "regulator-gpio";
++		regulator-name = "vdd-cpux";
++		regulator-type = "voltage";
++		regulator-boot-on;
++		regulator-always-on;
++		regulator-min-microvolt = <1100000>;
++		regulator-max-microvolt = <1300000>;
++		regulator-ramp-delay = <50>;
++		gpios = <&r_pio 0 6 GPIO_ACTIVE_HIGH>;
++		gpios-states = <1>;
++		states = <1100000 0x0>, <1300000 0x1>;
++	};
++
++	/* 1.2V rail (PL8) */
++	reg_vcc1v2: vcc1v2 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc1v2";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		regulator-always-on;
++		regulator-boot-on;
++		vin-supply = <&reg_vcc5v0>;
++		gpio = <&r_pio 0 8 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	/* DRAM 1.5V rail (PL9) */
++	reg_vcc_dram: vcc-dram {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc-dram";
++		regulator-min-microvolt = <1500000>;
++		regulator-max-microvolt = <1500000>;
++		regulator-always-on;
++		regulator-boot-on;
++		vin-supply = <&reg_vcc5v0>;
++		gpio = <&r_pio 0 9 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	/* USB OTG VBUS (PL2) */
++	reg_usb0_vbus: usb0-vbus {
++		compatible = "regulator-fixed";
++		regulator-name = "usb0-vbus";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		enable-active-high;
++		gpio = <&r_pio 0 2 GPIO_ACTIVE_HIGH>;
++		status = "okay";
++	};
++};
++
++/* eMMC on mmc2 (8-bit) */
++&mmc2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&mmc2_8bit_pins>;
++	vmmc-supply = <&reg_vcc3v3>;
++	bus-width = <8>;
++	non-removable;
++	cap-mmc-hw-reset;
++	status = "okay";
++};
++
++&mmc2_8bit_pins {
++	/* Increase drive strength for DDR modes */
++	drive-strength = <40>;
++	/* eMMC is missing pull-ups */
++	bias-pull-up;
++};
++
++/* USB host ports + OTG (Atom-N: 2x USB-A + 1x USB-C, RTL8723BU on USB) */
++&ehci0 {
++	status = "okay";
++};
++
++&ehci1 {
++	status = "okay";
++};
++
++&ehci2 {
++	status = "okay";
++};
++
++&ohci0 {
++	status = "okay";
++};
++
++&ohci1 {
++	status = "okay";
++};
++
++&ohci2 {
++	status = "okay";
++};
++
++&usb_otg {
++	status = "okay";
++	dr_mode = "otg";
++};
++
++&usbphy {
++	/* Atom-N schematic and factory DT route USB0 ID to PG12. */
++	usb0_id_det-gpios = <&pio 6 12 GPIO_ACTIVE_HIGH>;
++	usb0_vbus-supply = <&reg_usb0_vbus>;
++};
++
++/* VDD1V2-SYS powers the Mali domain on the Quark-N SoM. */
++&mali {
++	mali-supply = <&reg_vcc1v2>;
++};
++
++/* SPI0: Atom-N onboard 1.14-inch ST7789VW (240x135) */
++&spi0 {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&spi0_pins>;
++
++	/*
++	 * Preset the SPI module clock from pll-periph0 at probe time so the
++	 * driver never has to reparent it at runtime (the runtime clk_set_rate
++	 * reparent was leaving SCLK dead -> every transfer timed out with -110).
++	 */
++	assigned-clocks = <&ccu CLK_SPI0>;
++	assigned-clock-parents = <&ccu CLK_PLL_PERIPH0>;
++	assigned-clock-rates = <100000000>;
++
++	/*
++	 * Drop the DMA channels: the sun6i SPI DMA path hangs on the large
++	 * fbcon pixel blits and takes the kernel down with it (LCD black +
++	 * serial console unresponsive). PIO is plenty for a 240x135 console.
++	 */
++	/delete-property/ dmas;
++	/delete-property/ dma-names;
++
++	display@0 {
++		/*
++		 * panel-mipi-dbi-spi (8-bit SPI + separate DC line), NOT
++		 * panel-sitronix-st7789v: that driver hardcodes 9-bit SPI
++		 * (spi->bits_per_word = 9) which sun6i SPI cannot do, and its
++		 * pixel path is DPI/RGB. The compatible also names the firmware
++		 * file seeed,quark-n-st7789v.bin (already built in via
++		 * CONFIG_EXTRA_FIRMWARE).
++		 *
++		 * The factory fbtft registration leaves chip_select at its
++		 * default 0, which is the native SPI0 CS0 pin PC3.
++		 */
++		compatible = "seeed,quark-n-st7789v", "panel-mipi-dbi-spi";
++		reg = <0>;
++		/* Start conservatively; raise toward 15 MHz after board validation. */
++		spi-max-frequency = <8000000>;
++		spi-cpol;
++		spi-cpha;
++		dc-gpios = <&pio 0 0 GPIO_ACTIVE_HIGH>;    /* PA0 */
++		reset-gpios = <&pio 0 1 GPIO_ACTIVE_HIGH>; /* PA1 */
++		write-only;
++
++		/* Physical size only feeds DPI; harmless if approximate. */
++		width-mm = <25>;
++		height-mm = <14>;
++
++		panel-timing {
++			hactive = <240>;
++			vactive = <135>;
++			/* Native RAM window starts at column 40, row 53. */
++			hback-porch = <40>;
++			vback-porch = <53>;
++			clock-frequency = <0>;
++			hfront-porch = <0>;
++			hsync-len = <0>;
++			vfront-porch = <0>;
++			vsync-len = <0>;
++		};
++	};
++};
++
++/* Onboard audio codec: mic on MIC1, line out on LINEOUT */
++&codec {
++	allwinner,audio-routing =
++		"Line Out", "LINEOUT",
++		"MIC1", "Mic",
++		"Mic", "MBIAS";
++	status = "okay";
++};
++
++&codec_analog {
++	status = "okay";
++};
++
++/* Atom-N schematic: MPU_SCL/SDA are Quark-N I2C0 (PA11/PA12). */
++&i2c0 {
++	clock-frequency = <100000>;
++	status = "okay";
++
++	mpu6050: imu@68 {
++		compatible = "invensense,mpu6050";
++		reg = <0x68>;
++		vdd-supply = <&reg_vcc3v3>;
++		vddio-supply = <&reg_vcc3v3>;
++	};
++};
++
++&i2c1 {
++	status = "okay";
++};
++
++&i2c2 {
++	status = "okay";
++};
++
++/*
++ * TODO items to resolve with hardware in hand:
++ *  - MPU6050 does not ACK on the currently running board even though the
++ *    schematic confirms I2C0; re-test after a full power cycle and inspect
++ *    population/pull-ups if it still times out.
++ *  - GPIO-KEY is PL3 according to the Atom-N schematic; verify button events.
++ *  - Ethernet (EMAC): vendor DT has it disabled; Atom-N likely has no PHY.
++ */
+diff --git a/firmware/seeed,quark-n-st7789v.bin b/firmware/seeed,quark-n-st7789v.bin
+new file mode 100644
+index 0000000000000000000000000000000000000000..ebcccb865267ecb3a9e0bccd5d617bc5b2ca48c3
+GIT binary patch
+literal 101
+zcmebE4DeKNaq?t<07eGJ3Nyw6D@N8$tUNpn#>U$jO?NX&9$?ft#K?G<QRoPx!ZAkv
+y3rtHEKH$5+!Ye4OZ6D$z!OJbL{1C|J5fs+3cL~&&mse0$WDsNk8m0*(P5=NuS`~i)
+
+literal 0
+HcmV?d00001
+
+-- 
+2.50.1 (Apple Git-155)
+

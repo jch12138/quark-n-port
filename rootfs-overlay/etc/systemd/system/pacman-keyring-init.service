@@ -1,0 +1,15 @@
+[Unit]
+Description=Initialize Arch Linux ARM pacman keyring
+Documentation=man:pacman-key(8)
+ConditionPathExists=!/var/lib/pacman-keyring-init/done
+After=local-fs.target systemd-random-seed.service resize-fs.service
+Before=systemd-user-sessions.service getty.target
+Wants=systemd-random-seed.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/init-pacman-keyring.sh
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target

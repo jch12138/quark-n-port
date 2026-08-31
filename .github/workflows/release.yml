@@ -1,0 +1,65 @@
+name: Build candidate release
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: 'Upstream Linux tag or commit; leave empty for latest release tag'
+        required: false
+        type: string
+      publish:
+        description: 'Create a GitHub prerelease when validation succeeds'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_FLAVOR: release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select upstream Linux release
+        id: version
+        run: |
+          requested='${{ inputs.kernel_ref }}'
+          if [ -n "$requested" ]; then ref="$requested"; else ref=$(scripts/latest-kernel-tag.sh); fi
+          tag="quark-n-${ref}"
+          printf 'ref=%s\ntag=%s\n' "$ref" "$tag" >> "$GITHUB_OUTPUT"
+      - name: Skip an already published candidate
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view '${{ steps.version.outputs.tag }}' >/dev/null 2>&1; then echo 'skip=true' >> "$GITHUB_OUTPUT"; fi
+      - name: Build image
+        if: steps.existing.outputs.skip != 'true'
+        run: scripts/build-image.sh '${{ steps.version.outputs.ref }}' '${{ steps.version.outputs.tag }}'
+      - name: Upload build artefacts
+        if: steps.existing.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.tag }}
+          path: |
+            output/quark-n-mainline.img
+            output/quark-n-mainline.img.sha256
+            output/quark-n-mainline.manifest
+          if-no-files-found: error
+      - name: Publish prerelease
+        if: steps.existing.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.publish)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.version.outputs.tag }}' \
+            --title 'Quark-N ${{ steps.version.outputs.ref }} candidate' \
+            --notes 'Automated candidate. It passed source, image checksum and ext4 structural checks; board hardware validation is still pending.' \
+            --prerelease \
+            output/quark-n-mainline.img \
+            output/quark-n-mainline.img.sha256 \
+            output/quark-n-mainline.manifest

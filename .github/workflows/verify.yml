@@ -1,0 +1,28 @@
+name: Verify build inputs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: bash -n assembly.sh scripts/*.sh rootfs-overlay/usr/local/sbin/* rootfs-overlay/root/quark-hardware-test.sh
+      - name: Validate source lock format
+        run: bash -n sources.lock
+      - name: Fetch locked Linux source and validate patch
+        run: |
+          . ./sources.lock
+          git clone --filter=blob:none "$KERNEL_REPOSITORY" linux
+          git -C linux checkout --detach "$KERNEL_BASE_REF"
+          git -C linux am --3way ../patches/linux/*.patch
+      - name: Validate container recipe
+        run: docker build --tag quark-n-builder --file docker/Dockerfile .

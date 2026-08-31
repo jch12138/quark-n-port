@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry RTL8723BU probe after firmware becomes available
+After=local-fs.target systemd-udev-trigger.service
+Before=iwd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wifi-hw-init.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

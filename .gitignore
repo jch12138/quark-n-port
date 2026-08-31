@@ -1,0 +1,25 @@
+.DS_Store
+
+# Recreated source/build caches and large release artefacts.
+src/
+.cache/
+build/
+downloads/
+output/
+backups/
+*.img
+*.img.sha256
+*.log
+archlinuxarm-armv7-latest.tar.gz
+
+# Superseded one-off investigation outputs retained locally only.
+/zImage
+/boot.scr
+/boot.cmd
+/extlinux/
+/sun8i-h3-atom_n.dts
+/sun8i-h3-nanopi.dtsi
+/sun8i-h3-quark-n.dtb
+/sun8i-h3-quark-n.dts
+/sun8i-h3-unit.dts
+/quark_n_h3_defconfig

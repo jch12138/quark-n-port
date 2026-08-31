@@ -1,0 +1,10 @@
+# Offline packages included in every image. Package archives and SHA256SUMS
+# live under pkgs/ so release builds do not depend on target-side pacman.
+iwd
+ell
+bluez
+bluez-utils
+alsa-utils
+i2c-tools
+usbutils
+evtest
