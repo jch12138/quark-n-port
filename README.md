@@ -1,5 +1,7 @@
 # Quark-N mainline Linux image builder
 
+[简体中文](README.zh-CN.md)
+
 Reproducible image builder for the **Seeed Quantum Mini** platform: the
 Allwinner H3-based Quark-N system-on-module and Atom-N carrier. It builds a
 patched upstream ARM Linux kernel, combines it with a pinned Arch Linux ARM
