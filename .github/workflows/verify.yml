@@ -23,6 +23,9 @@ jobs:
           . ./sources.lock
           git clone --filter=blob:none "$KERNEL_REPOSITORY" linux
           git -C linux checkout --detach "$KERNEL_BASE_REF"
-          git -C linux am --3way ../patches/linux/*.patch
+          git -C linux \
+            -c user.name='Quark-N CI' \
+            -c user.email='ci@quark-n.invalid' \
+            am --3way ../patches/linux/*.patch
       - name: Validate container recipe
         run: docker build --tag quark-n-builder --file docker/Dockerfile .

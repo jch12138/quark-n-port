@@ -33,7 +33,12 @@ trap cleanup ERR
 
 for patch in "$REPO_ROOT"/patches/linux/*.patch; do
 	[ -e "$patch" ] || continue
-	git -C "$WORKTREE" am --3way "$patch"
+	# `git am` creates a local commit.  CI runners and clean developer hosts may
+	# not have a global Git identity, so keep the generated commit deterministic.
+	git -C "$WORKTREE" \
+		-c user.name='Quark-N CI' \
+		-c user.email='ci@quark-n.invalid' \
+		am --3way "$patch"
 done
 
 mkdir -p "$OUTPUT"
