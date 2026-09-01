@@ -63,7 +63,8 @@ EOF
 
 # Keep the documented development-image credentials deterministic even if the
 # upstream Arch Linux ARM rootfs changes its default account policy.  Store
-# only the SHA-512 crypt hash for the password "root" in the image.
+# only the SHA-512 crypt hash for the password "root" in the image.  The
+# first-login helper must not replace this password.
 ROOT_SHADOW="$BLD/rootfs/etc/shadow"
 ROOT_PASSWORD_HASH='$6$quarkn-root$MB/rcbOXHFTuCgWT8J42KoynjfigegLaBktc//rZTcJ.TX2j6VSAkqYMG.b0FqhC80QTVmuS70l7NwT3z8TxM0'
 ROOT_RECORDS=$(awk -F: '$1 == "root" { count++ } END { print count + 0 }' \
@@ -132,13 +133,19 @@ done
 # --- rootfs overlay: auto-resize service ---
 echo "== apply rootfs overlay =="
 cp -a /work/rootfs-overlay/. "$BLD/rootfs/"
+
+# Build a dependency-free board demo that combines the application key,
+# MPU6050 IIO readings and the ST7789 framebuffer.
+arm-linux-gnueabihf-gcc -std=gnu11 -O2 -Wall -Wextra -Werror -static \
+	/work/tools/quark-lcd-mpu-demo.c \
+	-o "$BLD/rootfs/root/quark-lcd-mpu-demo"
 chmod +x "$BLD/rootfs/usr/local/sbin/resize-fs.sh" \
 	         "$BLD/rootfs/usr/local/sbin/init-pacman-keyring.sh" \
 	         "$BLD/rootfs/usr/local/sbin/wifi-connect.sh" \
 	         "$BLD/rootfs/usr/local/sbin/wifi-hw-init.sh" \
 	         "$BLD/rootfs/usr/local/sbin/quark-audio-init.sh" \
-	         "$BLD/rootfs/usr/local/sbin/quark-login-shell" \
 	         "$BLD/rootfs/usr/local/sbin/quark-first-login" \
+	         "$BLD/rootfs/root/quark-lcd-mpu-demo" \
 	         "$BLD/rootfs/root/quark-hardware-test.sh"
 
 for TOOL in bluetoothctl aplay arecord i2cget lsusb evtest; do
@@ -149,8 +156,9 @@ for TOOL in bluetoothctl aplay arecord i2cget lsusb evtest; do
 		}
 done
 
-# Make the exact built-in kernel feature set available to the on-board test.
-cp "$KERNEL_CONFIG" "$BLD/rootfs/boot/config-quark-n"
+# Make the exact built-in kernel feature set available on the mounted FAT boot
+# partition.  A copy under rootfs/boot would be hidden after /boot is mounted.
+cp "$KERNEL_CONFIG" "$BLD/boot/config-quark-n"
 
 # Arch Linux ARM's generic kernel package owns /boot/zImage.  This image boots
 # a board-specific kernel at that same path, so retain user-space updates while
@@ -159,10 +167,9 @@ PACMAN_CONF="$BLD/rootfs/etc/pacman.conf"
 grep -q '^IgnorePkg = linux-armv7$' "$PACMAN_CONF" || \
 	sed -i '/^\[options\]$/a IgnorePkg = linux-armv7' "$PACMAN_CONF"
 
-# Release images use root/root only as a one-time bootstrap account.  Its
-# login shell forces creation of a normal user and replacement of the root
-# password; it then disables password-based root SSH.  Development images can
-# opt out with IMAGE_FLAVOR=dev for unattended serial debugging.
+# Release images keep root/root and the standard /bin/bash shell available for
+# board recovery.  Interactive root sessions display a non-blocking reminder
+# to run quark-first-login until provisioning is complete.
 SSHD_ROOT_LOGIN_CONF="$BLD/rootfs/etc/ssh/sshd_config.d/10-root-login.conf"
 [ -f "$SSHD_ROOT_LOGIN_CONF" ] || {
 	echo "MISSING SSH root-login config: $SSHD_ROOT_LOGIN_CONF"
@@ -178,13 +185,27 @@ grep -qx 'PasswordAuthentication yes' "$SSHD_ROOT_LOGIN_CONF" || {
 }
 chmod 0644 "$SSHD_ROOT_LOGIN_CONF"
 
+# systemd-journald stores per-user journal ACLs on ext4.  Generic POSIX ACL
+# support alone is insufficient; require the ext4 implementation as well.
+grep -qx 'CONFIG_FS_POSIX_ACL=y' "$KERNEL_CONFIG" || {
+	echo "INVALID kernel config: CONFIG_FS_POSIX_ACL=y is required"
+	exit 1
+}
+grep -qx 'CONFIG_EXT4_FS_POSIX_ACL=y' "$KERNEL_CONFIG" || {
+	echo "INVALID kernel config: CONFIG_EXT4_FS_POSIX_ACL=y is required"
+	exit 1
+}
+
 if [ "$IMAGE_FLAVOR" = "release" ]; then
-	for f in "$BLD/rootfs/usr/local/sbin/quark-login-shell" \
-	         "$BLD/rootfs/usr/local/sbin/quark-first-login"; do
-		[ -x "$f" ] || { echo "MISSING first-login helper: $f"; exit 1; }
-	done
+	FIRST_LOGIN="$BLD/rootfs/usr/local/sbin/quark-first-login"
+	[ -x "$FIRST_LOGIN" ] || {
+		echo "MISSING first-login helper: $FIRST_LOGIN"
+		exit 1
+	}
+	# Keep root on the standard shell.  First-login provisioning is an explicit
+	# command advertised by /etc/profile.d, not a PAM-visible shell wrapper.
 	ROOT_PASSWD="$BLD/rootfs/etc/passwd"
-	awk -F: -v OFS=: '$1 == "root" { $7 = "/usr/local/sbin/quark-login-shell" } { print }' \
+	awk -F: -v OFS=: '$1 == "root" { $7 = "/bin/bash" } { print }' \
 		"$ROOT_PASSWD" > "$ROOT_PASSWD.new"
 	mv -f "$ROOT_PASSWD.new" "$ROOT_PASSWD"
 elif [ "$IMAGE_FLAVOR" != "dev" ]; then
@@ -222,16 +243,27 @@ ln -sf /usr/lib/systemd/system/bluetooth.service \
 	       "$BLD/rootfs/etc/systemd/system/dbus-org.bluez.service"
 
 # --- compute sizes ---
-BOOT_SECTORS=131072            # 64 MiB
+BOOT_MIB=64
+BOOT_KIB=$((BOOT_MIB * 1024))
+BOOT_SECTORS=$((BOOT_MIB * 2048))
 ROOT_KIB=$(du -sk "$BLD/rootfs" | cut -f1)
 ROOT_MARGIN_KIB=$((ROOT_KIB + ROOT_KIB / 2 + 131072))
 ROOT_MIB=$(( (ROOT_MARGIN_KIB + 1023) / 1024 ))
 ROOT_SECTORS=$((ROOT_MIB * 2048 ))
-TOTAL_MIB=$(( 65 + ROOT_MIB ))
+TOTAL_MIB=$(( 1 + BOOT_MIB + ROOT_MIB ))
 echo "rootfs=$((ROOT_KIB/1024))MiB -> root part=${ROOT_MIB}MiB, image=${TOTAL_MIB}MiB"
 
 echo "== build boot FAT image =="
-mkfs.fat -F 32 -C "$BLD/boot.fat" "$BOOT_SECTORS" >/dev/null
+# mkfs.fat -C takes a count of 1024-byte blocks, while the partition table
+# below uses 512-byte sectors.  Passing BOOT_SECTORS here silently creates a
+# 128 MiB filesystem inside the 64 MiB partition.
+mkfs.fat -F 32 -C "$BLD/boot.fat" "$BOOT_KIB" >/dev/null
+BOOT_FAT_BYTES=$(stat -c %s "$BLD/boot.fat")
+EXPECTED_BOOT_BYTES=$((BOOT_SECTORS * 512))
+[ "$BOOT_FAT_BYTES" -eq "$EXPECTED_BOOT_BYTES" ] || {
+	echo "INVALID boot FAT size: $BOOT_FAT_BYTES, expected $EXPECTED_BOOT_BYTES"
+	exit 1
+}
 mcopy -s -i "$BLD/boot.fat" "$BLD/boot"/* ::
 
 echo "== build root ext4 image =="

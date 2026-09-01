@@ -39,7 +39,6 @@ image, `linux-armv7` must remain ignored by pacman: Quark-N ships its own
 
 ## First boot
 
-Release images permit exactly one interactive `root/root` login. The forced
-first-login shell creates a normal user, asks for that user's password and a new
-local root recovery password, then disables root SSH. Non-interactive root SSH
-commands are refused until provisioning completes.
+Release images use `root/root` with the standard `/bin/bash` shell. Interactive
+root sessions show a reminder to run `quark-first-login`, which creates a normal
+user and asks only for that user's password. Root SSH remains available.

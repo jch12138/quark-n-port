@@ -13,7 +13,8 @@ The release image uses a fixed factory U-Boot binary, a board-specific kernel
 and DTB, and a pinned Arch rootfs digest. `linux-armv7` is held in pacman so an
 ordinary Arch user-space update cannot replace `/boot/zImage`.
 
-On first boot, log in once as `root` with password `root`. The forced setup
-creates a normal user, requests new passwords and disables root SSH. See
+On first boot, log in as `root` with password `root`, then run
+`quark-first-login` to create a normal user. Root always uses `/bin/bash`, and
+root/root plus root SSH remain available. See
 [docs/releasing.md](docs/releasing.md) for local builds and automated candidate
 releases.

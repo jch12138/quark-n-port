@@ -42,12 +42,12 @@ CONFIG_SUNXI_DRAM_DDR3_1333=y
 | usb0-vbus | PL2 | |
 | LED status | PA10 | heartbeat |
 | LED pwr | PL10 | |
-| 按键 GPIO-KEY | PL3（U-Boot DT）/ PL6（内核 DT 但未被引用，且 PL6 被 vdd-cpux 占用）| 待实测确认 |
+| 应用按键 GPIO-KEY | PL3，映射为 `KEY_PROG1` | 普通应用按键，不触发 systemd 关机；首次创建用户已加入 `input` 组 |
 | 以太网 EMAC | DT 中 disabled（RGMII PD0–PD17）| 载板疑似未接 PHY |
 
 ### 外设
 - **WiFi/BT**：RTL8723BU（USB 接口，主线 `rtl8xxxu` 驱动 + 固件 rtl8723bu）
-- **MPU6050**：原理图确认接 I2C0（PA11/PA12，标准地址 0x68）；当前样板在 I2C0/1/2 的 0x68/0x69 均无 ACK，待断电重启及硬件排查
+- **MPU6050**：原理图确认接 I2C0（PA11/PA12，标准地址 0x68）；板级 DTS 为未布置外部上拉的总线启用内部上拉后，驱动绑定及六轴原始数据均已实机验证
 - **麦克风**：H3 codec 模拟输入（"MIC1"→"Mic"，MBIAS），audio-routing 已定义
 - **LCD**：ST7789VW，8 位 SPI MIPI-DBI mode 3，CS0=PC3、DC=PA0、RST=PA1，240x135，RAM 偏移 X=40/Y=53
 
@@ -66,8 +66,8 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
 4. **验证**：先 SD 卡启动出串口 log，再逐个点亮外设
 
 ## 待办/开放项（拿到板子后 5 分钟定位）
-- [ ] MPU6050 无 ACK：确认器件是否贴装、供电、上拉和焊接（原理图连接已确认是 I2C0）
-- [ ] GPIO-KEY 按键真实 GPIO（PL3 vs PL6）
+- [x] MPU6050 I2C0：内部上拉修复已实机验证，IIO 六轴数据可读
+- [x] GPIO-KEY 使用 PL3，并映射为应用按键 `KEY_PROG1`
 - [ ] 以太网是否真没接 PHY
 - [ ] LPDDR3 时序在主线 U-Boot 下能否直接点亮（最可能翻车，需串口验证 SPL 阶段）
 
@@ -80,7 +80,7 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
 - **成品镜像**：`~/quark-n-port/output/quark-n-mainline.img`（3,212,836,864 bytes；SHA-256 `3838f23418dc23b08fbf03459f70973829e9fede31685283503d24f759641293`，release 首登用户创建版）
 - 分区：p1 FAT32 64MB（zImage + sun8i-h3-quark-n.dtb + boot.scr + extlinux.conf），p2 ext4 2.9GB（Arch ARM rootfs，首启自动扩容）
 - **内核**：主线 7.2（torvalds master），`sunxi_defconfig` + 自制 `arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts`
-- **rootfs**：Arch Linux ARM armv7h；首次以 `root/root` 交互登录会强制创建普通用户、设置新 root 恢复密码并关闭 root SSH
+- **rootfs**：Arch Linux ARM armv7h；root 使用标准 `/bin/bash`，首次登录提示手动运行 `quark-first-login` 创建普通用户，root SSH 保持开放
 - **Bootloader**：原厂 `u-boot-sunxi-with-spl.bin`（2017.11 FriendlyARM 版，从原厂镜像 8KB 偏移提取）
 - 烧录：`dd if=quark-n-mainline.img of=/dev/<SD> bs=4M` 或 balenaEtcher
 
@@ -89,11 +89,11 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
 |---|---|---|
 | WiFi (RTL8723BU) | ✅ 已修复待新镜像真机复验 | `rtl8xxxu` 内置驱动首次探测早于 rootfs 固件；新增开机 USB interface reprobe，补齐 iwd 内核加密选项，连接脚本动态发现无线接口 |
 | 蓝牙 | ✅ 实机控制器验证 | `btusb`/`btbcm` + BlueZ；hci0 存在且 `bluetoothctl show` 为 Powered=yes，配对/传输待晚间外设测试 |
-| MPU6050 | ⚠️ DTS 已纠正、硬件无 ACK | 原理图明确连接 I2C0；当前样板扫描 I2C0/1/2、0x68/0x69 均超时，不能把 DTS 迁移等同于器件可用 |
+| MPU6050 | ✅ 实机验证通过 | 原理图确认 I2C0/PA11/PA12、3.3V、AD0=GND/0x68，但未设计外部上拉；板级 DTS 为 PA11/PA12 增加 `bias-pull-up` 后驱动正常绑定，六轴原始数据可读 |
 | 麦克风/音频 | ✅ PCM 链路验证 | H3 codec 播放/录音设备存在，`arecord`/`aplay` 命令成功；实际扬声器/麦克风音质待晚间听测 |
-| 按键/LED | ✅ | gpio-keys + gpio-leds |
+| 按键/LED | ✅ | PL3 通过 gpio-keys 映射为 `KEY_PROG1`，供应用从 evdev 读取；不再使用 `KEY_POWER` |
 | USB 外设 | ✅ 驱动固化、待插拔验证 | 增加 U 盘/UAS、USB 串口、ACM、USB 网卡、UVC、USB Audio、HIDRAW、configfs gadget 等常用类驱动 |
-| GPU | ✅ render 节点验证 | `/dev/dri/renderD128` 已存在；DTS 补上 Mali 1.2V regulator，待新镜像复核内核不再报告供电缺失 |
+| GPU | ✅ 实机验证通过 | DTS 补上 Mali 1.2V regulator 后 Lima 正常 probe，`/dev/dri/renderD128` 已存在 |
 | 自动扩容 | ✅ 串口实机验证 | 使用 `sfdisk --no-reread --force` + `partx -u` + `resize2fs`；任何一步失败均不写完成标志，实机根分区已从 2.8GB 扩至 29.4GB |
 | pacman | ✅ 已固化首启修复 | Landlock 正常；新增 `pacman-keyring-init.service`，登录前自动 init/populate，仅成功后写完成标志 |
 | LCD (ST7789VW) | ✅ 实机验证通过 | 屏幕点亮并显示 tty；240x135、PC3/PA0/PA1、SPI mode 3、偏移 40/53 |
@@ -111,7 +111,9 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
 - 内核补齐常用 USB host/gadget、USB 串口、UVC、USB Audio、USB 网卡和 HIDRAW 驱动。
 - rootfs 离线预装 BlueZ、ALSA utilities、i2c-tools、usbutils、evtest 及依赖，并同步 pacman 本地数据库，避免运行时依赖未登记或首次联网装包。
 - 新增 `/root/quark-hardware-test.sh`：默认只读检测；`--interactive` 额外执行 3 秒录放音、按键等待和 LED 闪烁；报告保存在 `/root/quark-hardware-report-*.txt`。
-- 当前旧镜像实机运行修正版脚本：PASS=14、WARN=2、FAIL=1；失败项仅 MPU6050 无 ACK，警告为旧镜像没有内核 config 快照及载板无已确认以太网 PHY。新镜像已通过 ext4 `e2fsck -fn` 和预置文件静态检查。
+- 新增静态程序 `/root/quark-lcd-mpu-demo`：在 ST7789 LCD 上显示 MPU6050 六轴数据，PL3/`KEY_PROG1` 用于切换 LIVE/HOLD，不依赖 Python 或图形桌面。
+- 修复 FAT 启动分区容量单位：`mkfs.fat -C` 使用 KiB 块而非 512B 扇区；旧脚本曾把 64MiB 分区误建成 128MiB 文件系统。现在分别计算 KiB/扇区并在写入镜像前强制校验精确字节数。
+- 当前镜像实机运行修正版脚本：PASS=14、WARN=3、FAIL=0；核心外设全部通过。警告分别为 WiFi 尚未获取 IPv4、FAT 启动分区缺少内核 config 快照、载板无已确认以太网 PHY。打包脚本现已将 config 快照写入真正的 FAT `/boot`，镜像校验也会检查该文件和 ACL 配置。
 
 ## 2026-08-30 LCD 适配排查（阶段性结论，已被次日原厂源码核对修正）
 - **结论**：此前 NOTES 记录的"已改用 panel-mipi-dbi-spi"实际未落地——内核树 DT（`src/linux/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts` 22:47 版）的 compatible 仍是 `sitronix,st7789v`（匹配 `panel-sitronix-st7789v.c`，probe 硬编码 `spi->bits_per_word=9`，sun6i SPI 仅 8 位 → 仍报 "Failed to setup spi"），且残留 fbtft 属性 rotate/fps/buswidth（DRM 不认，全无效）。
@@ -142,7 +144,7 @@ SPL → U-Boot → fatload mmc 0:1 (zImage + rootfs.cpio.gz + sun8i-h3-atom_n.dt
   2. 或在 U-Boot 构建系统里把 `-marm` 正确只注入 `KBUILD_AFLAGS`（.S 汇编）和 `KBUILD_CFLAGS`（.c 内联汇编），不碰 cpp_flags
 
 ## 待办/开放项（拿到板子后 5 分钟定位）
-- [ ] MPU6050 I2C0 无 ACK：检查器件贴装、3.3V 供电、SCL/SDA 上拉及焊接
-- [ ] GPIO-KEY 按键真实 GPIO（U-Boot DT 写 PL3、内核 DT 写 PL6 但 PL6 被 vdd-cpux 占用）
+- [x] MPU6050 I2C0：DTS 内部上拉修复已通过 IIO 实机数据验证
+- [x] GPIO-KEY 固定使用 PL3，映射为 `KEY_PROG1` 普通应用按键
 - [ ] 以太网是否真没接 PHY（原厂 DT 里 EMAC 是 disabled）
 - [ ] 新镜像晚间跑 `/root/quark-hardware-test.sh --interactive`，完成音频听测、按键、LED、蓝牙配对和 USB 插拔验证

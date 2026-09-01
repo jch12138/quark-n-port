@@ -4,7 +4,6 @@ set -euo pipefail
 
 STATE_DIR=/var/lib/quark-first-login
 FLAG=$STATE_DIR/done
-ROOT_SSH_CONF=/etc/ssh/sshd_config.d/10-root-login.conf
 
 [ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
 [ -e "$FLAG" ] && exec /bin/bash -l
@@ -35,18 +34,11 @@ useradd -m -s /bin/bash -G wheel,audio,video,input "$USERNAME"
 echo "Set the password for $USERNAME:"
 passwd "$USERNAME"
 
-echo "Set a new root password for local recovery (root SSH is disabled afterwards):"
-passwd root
-
 install -d -o root -g root -m 0755 "$STATE_DIR"
-printf '%s\n' \
-	'# Root SSH is enabled only for first-login provisioning.' \
-	'PermitRootLogin no' \
-	'PasswordAuthentication yes' > "$ROOT_SSH_CONF"
-chmod 0644 "$ROOT_SSH_CONF"
+# Never call `passwd root` here. The new account password must be independent
+# from root, and root SSH remains enabled by the image policy.
 usermod -s /bin/bash root
 touch "$FLAG"
-systemctl try-reload-or-restart sshd.service 2>/dev/null || true
 
-echo "Provisioning complete.  Root SSH is now disabled; use $USERNAME for SSH."
+echo "Provisioning complete. Use $USERNAME for daily work; root SSH remains enabled."
 exec su - "$USERNAME"

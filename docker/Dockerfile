@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-arm-linux-gnueabihf \
     binutils-arm-linux-gnueabihf \
+    libc6-dev-armhf-cross \
     gcc make git bc bison flex \
     libssl-dev libncurses-dev libfdt-dev libgnutls28-dev \
     device-tree-compiler u-boot-tools \

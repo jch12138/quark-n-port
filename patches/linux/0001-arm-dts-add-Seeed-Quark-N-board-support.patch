@@ -7,9 +7,9 @@ Subject: [PATCH] arm: dts: add Seeed Quark-N board support
  .gitignore                                    |   1 +
  .../display/panel/panel-mipi-dbi-spi.yaml     |   1 +
  arch/arm/boot/dts/allwinner/Makefile          |   1 +
- .../boot/dts/allwinner/sun8i-h3-quark-n.dts   | 249 ++++++++++++++++++
+ .../boot/dts/allwinner/sun8i-h3-quark-n.dts   | 290 ++++++++++++++++++
  firmware/seeed,quark-n-st7789v.bin            | Bin 0 -> 101 bytes
- 5 files changed, 252 insertions(+)
+ 5 files changed, 293 insertions(+)
  create mode 100644 arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts
  create mode 100644 firmware/seeed,quark-n-st7789v.bin
 
@@ -54,7 +54,7 @@ new file mode 100644
 index 000000000..edb0fad21
 --- /dev/null
 +++ b/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dts
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,290 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Device tree for the Pengzhihui (Seeed) Quark-N SoM on the Atom-N carrier,
@@ -78,6 +78,16 @@ index 000000000..edb0fad21
 +		serial0 = &uart0;
 +		mmc0 = &mmc0;
 +		mmc2 = &mmc2;
++	};
++
++	/* Expose the carrier key to applications; do not trigger system poweroff. */
++	gpio-keys {
++		key-0 {
++			label = "quark-user-key";
++			linux,code = <KEY_PROG1>;
++			debounce-interval = <20>;
++			wakeup-source;
++		};
 +	};
 +
 +	/*
@@ -198,6 +208,26 @@ index 000000000..edb0fad21
 +	mali-supply = <&reg_vcc1v2>;
 +};
 +
++/*
++ * The Quark-N exposes a fixed 1.2V Mali rail.  Mainline's Lima devfreq
++ * rejects an OPP table with a regulator attached when the OPPs omit
++ * opp-microvolt, so describe the actual fixed rail for every GPU OPP.
++ */
++&gpu_opp_table {
++	opp-120000000 {
++		opp-microvolt = <1200000 1200000 1200000>;
++	};
++	opp-312000000 {
++		opp-microvolt = <1200000 1200000 1200000>;
++	};
++	opp-432000000 {
++		opp-microvolt = <1200000 1200000 1200000>;
++	};
++	opp-576000000 {
++		opp-microvolt = <1200000 1200000 1200000>;
++	};
++};
++
 +/* SPI0: Atom-N onboard 1.14-inch ST7789VW (240x135) */
 +&spi0 {
 +	status = "okay";
@@ -275,8 +305,22 @@ index 000000000..edb0fad21
 +	status = "okay";
 +};
 +
++/*
++ * Atom-N has no external pull-ups on the MPU6050 I2C lines.  Preserve the
++ * vendor configuration by enabling the H3's internal pull-ups on PA11/PA12.
++ */
++&pio {
++	i2c0_pullup_pins: i2c0-pullup-pins {
++		pins = "PA11", "PA12";
++		function = "i2c0";
++		bias-pull-up;
++	};
++};
++
 +/* Atom-N schematic: MPU_SCL/SDA are Quark-N I2C0 (PA11/PA12). */
 +&i2c0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c0_pullup_pins>;
 +	clock-frequency = <100000>;
 +	status = "okay";
 +
@@ -298,10 +342,7 @@ index 000000000..edb0fad21
 +
 +/*
 + * TODO items to resolve with hardware in hand:
-+ *  - MPU6050 does not ACK on the currently running board even though the
-+ *    schematic confirms I2C0; re-test after a full power cycle and inspect
-+ *    population/pull-ups if it still times out.
-+ *  - GPIO-KEY is PL3 according to the Atom-N schematic; verify button events.
++ *  - GPIO user key is PL3 according to the Atom-N schematic.
 + *  - Ethernet (EMAC): vendor DT has it disabled; Atom-N likely has no PHY.
 + */
 diff --git a/firmware/seeed,quark-n-st7789v.bin b/firmware/seeed,quark-n-st7789v.bin
@@ -317,4 +358,3 @@ HcmV?d00001
 
 -- 
 2.50.1 (Apple Git-155)
-

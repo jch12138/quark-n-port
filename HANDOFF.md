@@ -66,9 +66,9 @@ Arch Linux ARM rootfs 自带 `archlinuxarm-keyring` seed 文件，但默认不�
 - `PermitRootLogin yes`
 - `PasswordAuthentication yes`
 
-release 镜像仅允许一次交互式 `root/root` 登录。root 的登录 shell 会强制执行 `/usr/local/sbin/quark-first-login`：创建普通用户、设置该用户密码和新的 root 本地恢复密码，然后将该配置改为 `PermitRootLogin no` 并拒绝后续 root SSH。首登完成后使用创建的普通用户通过 SSH 登录；需要本地管理员权限时使用 `su -`。
+release 镜像使用标准 `/bin/bash` 和 `root/root`；交互式 root 登录仅提示运行 `quark-first-login`，由用户主动创建普通用户并只设置该用户密码。root 密码和 root SSH 保持可用。
 
-`assembly.sh` 会检查首登脚本存在、将 root 的登录 shell 设为受控 wrapper，并在 pacman 配置中加入 `IgnorePkg = linux-armv7`，避免 Arch 用户空间升级覆盖 Quark-N 的 `/boot/zImage`。
+`assembly.sh` 会检查首登脚本存在、确保 root shell 为 `/bin/bash`，并在 pacman 配置中加入 `IgnorePkg = linux-armv7`，避免 Arch 用户空间升级覆盖 Quark-N 的 `/boot/zImage`。`verify-image.sh` 会检查 root shell 和登录提示文件。
 
 ## 串口卡住与 LCD 的关系
 
@@ -102,9 +102,15 @@ cat /proc/cmdline
 /root/quark-hardware-test.sh --interactive
 ```
 
-默认模式只读并生成 `/root/quark-hardware-report-*.txt`；交互模式额外录放 3 秒音频、等待按键并闪烁 LED。当前板在旧内核上实测为 PASS=14、WARN=2、FAIL=1；唯一真实失败是 MPU6050 在 I2C0 地址 0x68 无 ACK。原理图已确认 MPU 接 I2C0，且扫描所有三条总线的 0x68/0x69 都无应答，因此下一步是检查器件贴装、供电、上拉和焊接，而不是继续猜测总线。
+默认模式只读并生成 `/root/quark-hardware-report-*.txt`；交互模式额外录放 3 秒音频、等待按键并闪烁 LED。当前板实测为 PASS=14、WARN=3、FAIL=0：LCD、Lima GPU、串口、root SSH、蓝牙、音频和 MPU6050 IIO 均通过。三个警告是 WiFi 尚未获取 IPv4、当前镜像的 FAT `/boot` 缺少内核 config 快照，以及载板无已确认以太网 PHY；config 快照的打包位置已修复，将在下一镜像生效。
 
 本轮还补齐了 USB storage/UAS、USB 串口、ACM、USB 网卡、UVC、USB Audio、HIDRAW、configfs gadget 等内核选项，rootfs 离线预装 BlueZ、ALSA、i2c-tools、usbutils 和 evtest。以太网仍保持禁用：原厂 DT 同样禁用 EMAC，载板尚未确认存在 PHY，不能盲目启用。
+
+Atom-N 的 PL3 按键已从继承的 `KEY_POWER` 覆盖为 `KEY_PROG1`，不会再触发 systemd 自动关机。应用可从 gpio-keys 对应的 `/dev/input/event*` 读取；`quark-first-login` 创建的普通用户默认属于 `input` 组。
+
+三合一演示程序位于 `/root/quark-lcd-mpu-demo`：直接使用 fb0 绘制 MPU6050 六轴原始数据和动态条形图，并监听 `KEY_PROG1`；每次按键在 LIVE 实时刷新和 HOLD 画面保持之间切换。`Ctrl-C` 退出。
+
+启动分区固定为 64MiB。注意 `mkfs.fat -C` 的最后一个参数是 1024 字节块数，不能传分区的 512 字节扇区数；`assembly.sh` 已分离 `BOOT_KIB`/`BOOT_SECTORS` 并检查生成文件必须精确为 67108864 字节。
 
 屏幕图案测试：
 

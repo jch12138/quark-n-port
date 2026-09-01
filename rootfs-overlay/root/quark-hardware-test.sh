@@ -170,7 +170,9 @@ if [ -n "$MPU_IIO" ]; then
 		[ -r "$VALUE" ] && printf '%s=%s\n' "${VALUE##*/}" "$(cat "$VALUE")"
 	done
 elif command_exists i2cget; then
-	WHO_AM_I=$(i2cget -y -f 0 0x68 0x75 b 2>/dev/null || true)
+	# Do not force access to a failed or wedged I2C client.  A normal read is
+	# sufficient after probe failure and avoids extending a locked-bus event.
+	WHO_AM_I=$(i2cget -y 0 0x68 0x75 b 2>/dev/null || true)
 	if [ "$WHO_AM_I" = "0x68" ]; then
 		warn "MPU6050 replies on I2C0 but the kernel driver did not bind"
 	else
@@ -212,7 +214,7 @@ KEY_HANDLER=$(awk '
 	found && /^$/ { exit }
 ' /proc/bus/input/devices 2>/dev/null)
 [ -n "$KEY_HANDLER" ] && KEY_EVENT=/dev/input/$KEY_HANDLER
-[ -n "$KEY_EVENT" ] && pass "GPIO power key input ($KEY_EVENT)" || warn "GPIO key event device not identified"
+[ -n "$KEY_EVENT" ] && pass "GPIO application key input ($KEY_EVENT)" || warn "GPIO key event device not identified"
 LED_COUNT=0
 for LED_PATH in /sys/class/leds/*; do
 	[ -e "$LED_PATH" ] || continue
