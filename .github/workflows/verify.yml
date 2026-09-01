@@ -26,6 +26,6 @@ jobs:
           git -C linux \
             -c user.name='Quark-N CI' \
             -c user.email='ci@quark-n.invalid' \
-            am --3way patches/linux/*.patch
+            am --3way "$GITHUB_WORKSPACE"/patches/linux/*.patch
       - name: Validate container recipe
         run: docker build --tag quark-n-builder --file docker/Dockerfile .
