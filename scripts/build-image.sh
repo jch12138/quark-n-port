@@ -16,9 +16,17 @@ sha256_check "$UBOOT_SHA256" "$REPO_ROOT/$UBOOT_BINARY"
 KERNEL_SOURCE_DIR=${KERNEL_SOURCE_DIR:-"$REPO_ROOT/src/linux"} \
 	"$REPO_ROOT/scripts/build-kernel.sh" "$KERNEL_REF_REQUESTED" "$BUILD_VERSION_REQUESTED"
 
+# Ensure a host-side build directory exists and is writable by the runner.
+# We mount this into the container at /build so the container user (which is
+# mapped to the runner UID) can create intermediates there without needing
+# root inside the container.
+mkdir -p "$REPO_ROOT/build"
+
 # Run the assembly inside a container but map the container user to the runner's
 # UID/GID so files created in the mounted repository are owned by the runner
 # (prevents permission denied errors when the workflow runs follow-up scripts).
+# Also mount the host build directory at /build so non-root inside the container
+# can create and write build intermediates.
 
 docker run --rm -u "$(id -u):$(id -g)" \
 	-e ROOTFS_TARBALL="/work/$ROOTFS_CONTAINER_PATH" \
@@ -30,7 +38,7 @@ docker run --rm -u "$(id -u):$(id -g)" \
 	-e IMAGE_FLAVOR="${IMAGE_FLAVOR:-release}" \
 	-e BUILD_VERSION="$BUILD_VERSION_REQUESTED" \
 	-e KERNEL_REF="$KERNEL_REF_REQUESTED" \
-	-v "$REPO_ROOT:/work" quark-n-builder bash /work/assembly.sh
+	-v "$REPO_ROOT:/work" -v "$REPO_ROOT/build:/build" quark-n-builder bash /work/assembly.sh
 
 "$REPO_ROOT/scripts/verify-image.sh" "$REPO_ROOT/output/${IMAGE_BASENAME}.img"
 "$REPO_ROOT/scripts/generate-manifest.sh" "$KERNEL_REF_REQUESTED" "$BUILD_VERSION_REQUESTED"
