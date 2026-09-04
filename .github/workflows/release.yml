@@ -41,6 +41,9 @@ jobs:
       - name: Build image
         if: steps.existing.outputs.skip != 'true'
         run: scripts/build-image.sh '${{ steps.version.outputs.ref }}' '${{ steps.version.outputs.tag }}'
+      - name: Fix build artifacts permissions
+        if: always() && steps.existing.outputs.skip != 'true'
+        run: sudo chmod -R u+w build/ output/ 2>/dev/null || true
       - name: Upload build artefacts
         if: steps.existing.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
