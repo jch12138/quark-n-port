@@ -15,7 +15,7 @@ fi
 
 if [ ! -f "$ROOTFS_PATH" ]; then
 	require_command curl
-	curl --fail --location --retry 3 --output "$ROOTFS_PATH.partial" "$ARCH_ROOTFS_URL"
+	curl --insecure --fail --location --retry 3 --output "$ROOTFS_PATH.partial" "$ARCH_ROOTFS_URL"
 	mv "$ROOTFS_PATH.partial" "$ROOTFS_PATH"
 fi
 sha256_check "$ARCH_ROOTFS_SHA256" "$ROOTFS_PATH"
