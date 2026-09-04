@@ -16,7 +16,11 @@ sha256_check "$UBOOT_SHA256" "$REPO_ROOT/$UBOOT_BINARY"
 KERNEL_SOURCE_DIR=${KERNEL_SOURCE_DIR:-"$REPO_ROOT/src/linux"} \
 	"$REPO_ROOT/scripts/build-kernel.sh" "$KERNEL_REF_REQUESTED" "$BUILD_VERSION_REQUESTED"
 
-docker run --rm \
+# Run the assembly inside a container but map the container user to the runner's
+# UID/GID so files created in the mounted repository are owned by the runner
+# (prevents permission denied errors when the workflow runs follow-up scripts).
+
+docker run --rm -u "$(id -u):$(id -g)" \
 	-e ROOTFS_TARBALL="/work/$ROOTFS_CONTAINER_PATH" \
 	-e UBOOT_BINARY="/work/$UBOOT_BINARY" \
 	-e ZIMAGE="/work/build/${BUILD_VERSION_REQUESTED//\//_}/output/arch/arm/boot/zImage" \
