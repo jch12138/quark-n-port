@@ -3,12 +3,14 @@ name: Build candidate release
 on:
   schedule:
     - cron: '23 3 * * *'
+
   workflow_dispatch:
     inputs:
       kernel_ref:
         description: 'Upstream Linux tag or commit; leave empty for latest release tag'
         required: false
         type: string
+
       publish:
         description: 'Create a GitHub prerelease when validation succeeds'
         required: true
@@ -18,35 +20,325 @@ on:
 permissions:
   contents: write
 
+# Prevent a scheduled run and a manually triggered run from building/publishing
+# the same candidate at the same time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
     env:
       IMAGE_FLAVOR: release
+
     steps:
-      - uses: actions/checkout@v4
+      # -----------------------------------------------------------------------
+      # Checkout
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # -----------------------------------------------------------------------
+      # Resolve kernel version
+      #
+      # Do not interpolate workflow input directly into shell commands.
+      # Passing it through env avoids shell-injection / quoting problems.
+      # -----------------------------------------------------------------------
       - name: Select upstream Linux release
         id: version
+        env:
+          REQUESTED_KERNEL_REF: ${{ inputs.kernel_ref }}
         run: |
-          requested='${{ inputs.kernel_ref }}'
-          if [ -n "$requested" ]; then ref="$requested"; else ref=$(scripts/latest-kernel-tag.sh); fi
+          set -euo pipefail
+
+          requested="${REQUESTED_KERNEL_REF:-}"
+
+          if [[ -n "$requested" ]]; then
+            ref="$requested"
+          else
+            ref="$(scripts/latest-kernel-tag.sh)"
+          fi
+
+          if [[ -z "$ref" ]]; then
+            echo "::error::Unable to determine upstream Linux ref"
+            exit 1
+          fi
+
+          # workflow_dispatch is documented to accept a Linux tag or commit.
+          #
+          # Official Linux tags (v7.2, v7.2-rc1, etc.) and commit SHAs are
+          # covered by this character set. Reject slashes, whitespace and shell
+          # metacharacters so the value is also safe as a release/artifact name.
+          if [[ ! "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Unsupported kernel ref: $ref"
+            echo "Use a Linux tag such as v7.2 / v7.2-rc1 or a commit SHA."
+            exit 1
+          fi
+
           tag="quark-n-${ref}"
-          printf 'ref=%s\ntag=%s\n' "$ref" "$tag" >> "$GITHUB_OUTPUT"
-      - name: Skip an already published candidate
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+          echo "Kernel ref: $ref"
+          echo "Candidate tag: $tag"
+
+      # -----------------------------------------------------------------------
+      # Check whether candidate already exists
+      #
+      # Do not silently treat every GitHub API failure as "release not found".
+      # Also make sure an existing release actually contains all expected
+      # assets before skipping the build.
+      # -----------------------------------------------------------------------
+      - name: Check existing candidate
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if gh release view '${{ steps.version.outputs.tag }}' >/dev/null 2>&1; then echo 'skip=true' >> "$GITHUB_OUTPUT"; fi
-      - name: Build image
+          set -euo pipefail
+
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
+
+          if release_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              2>"$error_file"
+          )"; then
+
+            echo "Release $RELEASE_TAG already exists."
+
+            missing=0
+
+            for asset in \
+              quark-n-mainline.img \
+              quark-n-mainline.img.sha256 \
+              quark-n-mainline.manifest
+            do
+              if ! jq -e \
+                --arg asset "$asset" \
+                '.assets[]? | select(.name == $asset)' \
+                <<<"$release_json" >/dev/null
+              then
+                echo "::error::Existing release is missing asset: $asset"
+                missing=1
+              fi
+            done
+
+            if (( missing != 0 )); then
+              echo "::error::Release $RELEASE_TAG exists but is incomplete."
+              exit 1
+            fi
+
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+
+          else
+            status=$?
+
+            if grep -q 'HTTP 404' "$error_file"; then
+              echo "Release $RELEASE_TAG does not exist; continuing."
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::Unable to query existing GitHub release."
+              cat "$error_file" >&2
+              exit "$status"
+            fi
+          fi
+
+      # -----------------------------------------------------------------------
+      # Build
+      #
+      # IMPORTANT:
+      #
+      # We intentionally do NOT call scripts/build-image.sh here.
+      #
+      # Current build-image.sh:
+      #
+      #   1. runs kernel build as container root
+      #   2. mounts host build/ onto /build
+      #   3. runs assembly as the runner UID
+      #
+      # assembly.sh, however, is explicitly designed for:
+      #
+      #   - root inside the container
+      #   - container-local /build
+      #
+      # Therefore run those phases correctly here.
+      # -----------------------------------------------------------------------
+      - name: Build and verify image
         if: steps.existing.outputs.skip != 'true'
-        run: scripts/build-image.sh '${{ steps.version.outputs.ref }}' '${{ steps.version.outputs.tag }}'
-      - name: Fix build artifacts permissions
+        env:
+          KERNEL_REF: ${{ steps.version.outputs.ref }}
+          BUILD_VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          source "$GITHUB_WORKSPACE/scripts/lib.sh"
+
+          echo "Building:"
+          echo "  kernel ref    = $KERNEL_REF"
+          echo "  build version = $BUILD_VERSION"
+          echo "  image flavor  = $IMAGE_FLAVOR"
+
+          # -------------------------------------------------------------------
+          # Prepare output directory as the GitHub runner user.
+          #
+          # assembly runs as container root and writes image/checksum here.
+          # Keeping the directory itself runner-owned allows the host-side
+          # manifest generator to create the manifest afterwards.
+          # -------------------------------------------------------------------
+          mkdir -p "$REPO_ROOT/output"
+
+          rm -f \
+            "$REPO_ROOT/output/${IMAGE_BASENAME}.img" \
+            "$REPO_ROOT/output/${IMAGE_BASENAME}.img.sha256" \
+            "$REPO_ROOT/output/${IMAGE_BASENAME}.manifest"
+
+          # -------------------------------------------------------------------
+          # Fetch and verify immutable build inputs.
+          # -------------------------------------------------------------------
+          ROOTFS_PATH="$("$REPO_ROOT/scripts/fetch-rootfs.sh")"
+          ROOTFS_CONTAINER_PATH="${ROOTFS_PATH#"$REPO_ROOT"/}"
+
+          sha256_check \
+            "$UBOOT_SHA256" \
+            "$REPO_ROOT/$UBOOT_BINARY"
+
+          # -------------------------------------------------------------------
+          # Kernel build
+          #
+          # build-kernel.sh's Docker container currently runs as root.
+          # Kernel O= output may consequently contain root-owned files.
+          # That is acceptable here because assembly only needs to read them;
+          # ownership is restored in the following workflow step.
+          # -------------------------------------------------------------------
+          KERNEL_SOURCE_DIR="$REPO_ROOT/src/linux" \
+            "$REPO_ROOT/scripts/build-kernel.sh" \
+              "$KERNEL_REF" \
+              "$BUILD_VERSION"
+
+          ZIMAGE_PATH="/work/build/${BUILD_VERSION//\//_}/output/arch/arm/boot/zImage"
+          DTB_PATH="/work/build/${BUILD_VERSION//\//_}/output/arch/arm/boot/dts/allwinner/sun8i-h3-quark-n.dtb"
+          CONFIG_PATH="/work/build/${BUILD_VERSION//\//_}/output/.config"
+
+          # -------------------------------------------------------------------
+          # Assemble image
+          #
+          # Do NOT:
+          #
+          #   - specify -u runner
+          #   - mount host build/ to /build
+          #
+          # /build is intentionally an ephemeral container-local workspace.
+          # assembly.sh expects to run as root.
+          # -------------------------------------------------------------------
+          docker run --rm \
+            -e ROOTFS_TARBALL="/work/$ROOTFS_CONTAINER_PATH" \
+            -e UBOOT_BINARY="/work/$UBOOT_BINARY" \
+            -e ZIMAGE="$ZIMAGE_PATH" \
+            -e DTB="$DTB_PATH" \
+            -e KERNEL_CONFIG="$CONFIG_PATH" \
+            -e OUTPUT_DIR="/work/output" \
+            -e IMAGE_FLAVOR="$IMAGE_FLAVOR" \
+            -e BUILD_VERSION="$BUILD_VERSION" \
+            -e KERNEL_REF="$KERNEL_REF" \
+            -v "$REPO_ROOT:/work" \
+            quark-n-builder \
+            bash /work/assembly.sh
+
+          # -------------------------------------------------------------------
+          # Structural verification
+          # -------------------------------------------------------------------
+          "$REPO_ROOT/scripts/verify-image.sh" \
+            "$REPO_ROOT/output/${IMAGE_BASENAME}.img"
+
+          # -------------------------------------------------------------------
+          # Generate manifest on the host.
+          # -------------------------------------------------------------------
+          "$REPO_ROOT/scripts/generate-manifest.sh" \
+            "$KERNEL_REF" \
+            "$BUILD_VERSION"
+
+      # -----------------------------------------------------------------------
+      # Restore files written by root-owned Docker build processes.
+      #
+      # chown is required here. chmod u+w would merely give the current owner
+      # (root) write permission and would not solve runner ownership.
+      #
+      # This also runs after a failed build so the workspace remains clean and
+      # post-job actions do not encounter root-owned files.
+      # -----------------------------------------------------------------------
+      - name: Restore workspace ownership
         if: always() && steps.existing.outputs.skip != 'true'
-        run: sudo chmod -R u+w build/ output/ 2>/dev/null || true
-      - name: Upload build artefacts
+        run: |
+          set -u
+
+          runner_uid="$(id -u)"
+          runner_gid="$(id -g)"
+
+          for path in build output src downloads .cache; do
+            if [[ -e "$path" ]]; then
+              sudo chown -R "$runner_uid:$runner_gid" "$path"
+            fi
+          done
+
+      # -----------------------------------------------------------------------
+      # Validate exact release outputs before upload / publication.
+      # -----------------------------------------------------------------------
+      - name: Validate release artifacts
         if: steps.existing.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        env:
+          KERNEL_REF: ${{ steps.version.outputs.ref }}
+          BUILD_VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            output/quark-n-mainline.img
+            output/quark-n-mainline.img.sha256
+            output/quark-n-mainline.manifest
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -s "$file" ]]; then
+              echo "::error::Missing or empty release artifact: $file"
+              exit 1
+            fi
+          done
+
+          (
+            cd output
+            sha256sum -c quark-n-mainline.img.sha256
+          )
+
+          grep -Fqx \
+            "kernel_ref=$KERNEL_REF" \
+            output/quark-n-mainline.manifest
+
+          grep -Fqx \
+            "build_version=$BUILD_VERSION" \
+            output/quark-n-mainline.manifest
+
+          grep -Fqx \
+            "image_flavor=release" \
+            output/quark-n-mainline.manifest
+
+      # -----------------------------------------------------------------------
+      # Store workflow artifact
+      # -----------------------------------------------------------------------
+      - name: Upload build artifacts
+        if: steps.existing.outputs.skip != 'true'
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ steps.version.outputs.tag }}
           path: |
@@ -54,14 +346,51 @@ jobs:
             output/quark-n-mainline.img.sha256
             output/quark-n-mainline.manifest
           if-no-files-found: error
+          overwrite: true
+
+      # -----------------------------------------------------------------------
+      # Publish prerelease
+      #
+      # Explicit --target is important. Without it, if main advances while the
+      # image is compiling, GitHub could create the release tag against a newer
+      # repository commit than the one that actually produced the image.
+      # -----------------------------------------------------------------------
       - name: Publish prerelease
-        if: steps.existing.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.publish)
+        if: >
+          steps.existing.outputs.skip != 'true' &&
+          (
+            github.event_name == 'schedule' ||
+            inputs.publish == true
+          )
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          KERNEL_REF: ${{ steps.version.outputs.ref }}
         run: |
-          gh release create '${{ steps.version.outputs.tag }}' \
-            --title 'Quark-N ${{ steps.version.outputs.ref }} candidate' \
-            --notes 'Automated candidate. It passed source, image checksum and ext4 structural checks; board hardware validation is still pending.' \
+          set -euo pipefail
+
+          notes_file="$RUNNER_TEMP/quark-n-release-notes.md"
+
+          {
+            printf 'Automated candidate for upstream Linux `%s`.\n\n' \
+              "$KERNEL_REF"
+
+            printf 'Validation completed:\n'
+            printf -- '- source and patch preparation\n'
+            printf -- '- kernel build\n'
+            printf -- '- image SHA-256 verification\n'
+            printf -- '- FAT and ext4 structural checks\n\n'
+
+            printf 'Repository commit: `%s`\n\n' "$GITHUB_SHA"
+
+            printf 'Board hardware validation is still pending.\n'
+          } > "$notes_file"
+
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Quark-N $KERNEL_REF candidate" \
+            --notes-file "$notes_file" \
             --prerelease \
             output/quark-n-mainline.img \
             output/quark-n-mainline.img.sha256 \
